@@ -92,7 +92,7 @@ petriNetInit[pnet_,init_]:= Module[
 
 
 (* ::Text:: *)
-(*TODO:// petriNetAnimate[petriNet, initial-tokens, steps]*)
+(*petriNetAnimate[petriNet, initial-tokens, steps]*)
 (*input: A petriNet and number of tokens in each places, and the steps that the user wants to run.*)
 (*output: dynamic visualization of how tokens move from state to state in the first n steps.*)
 
@@ -121,10 +121,16 @@ updateFiring[pnet_][current_]:= Module[
 ]
 
 
+ClearAll[petriNetRun];
 petriNetRun[pnet_, init_, step_Integer]:= Module[
-	{current = init},
-	current = Nest[updateFiring[pnet],current, step];
-	petriNetInit[pnet,current]
+	{current = init, g, index},
+	current = Nest[updateFiring[pnet], current, step-1];
+	index = First @ RandomChoice[Position[checkFiring[pnet, #, current] &/@ pnet[[3]], True]];
+	If[IntegerQ[index], 
+		makeFiring[pnet, pnet[[3,index]], current], 
+		Print["Dead!"]; Abort[]];
+	g = petriNetInit[pnet, current];
+	HighlightGraph[g, {pnet[[3,index]]}]
 ]
 
 
@@ -164,14 +170,11 @@ makePetriNetFromInput[input_]:= Module[
 
 
 ClearAll[PetriNetGeneral];
-PetriNetGeneral[]:=Module[
-	{petriNet},
-	petriNet = FormFunction[<|"Places" -> RepeatingElement[CompoundElement[<|"Circles"-> "String"|>]],"Transitions" -> RepeatingElement[CompoundElement[<|"Squares"-> "String"|>]],
+PetriNetGeneral[]:= FormFunction[<|"Places" -> RepeatingElement[
+	CompoundElement[<|"Circles"-> "String"|>]],"Transitions" -> RepeatingElement[CompoundElement[<|"Squares"-> "String"|>]],
 	"Arcs" -> RepeatingElement[CompoundElement[<|"from"-> "String","to"-> "String","numbers"-> "Integer"->1|>]],
 	"Initial States" -> CompoundElement[{"e.g: 0,0,1"->"String"}],
-	"Steps" -> CompoundElement[{"Input the steps you want to animate"-> "Integer"->10}]|>,makePetriNetFromInput];
-	petriNet[]
-]
+	"Steps" -> CompoundElement[{"Input the steps you want to animate"-> "Integer"->5}]|>,makePetriNetFromInput][]
 
 
 (* ::Subsection:: *)
@@ -206,13 +209,14 @@ ClearAll[waChemicalReaction];
 waChemicalReaction[chemicalReaction_String]:= Module[
 	{s,string},
 	s = WolframAlpha[chemicalReaction,{{"ReactionKineticsConstant:ChemicalReactionData",1},"ComputableData"}];
-	s = StringDrop[s,StringLength["K_c  =  "]];
+	If[s === Missing["NotAvailable"], Print["Missing, try a different notation."]; Abort[],
+	s = StringDrop[s, StringLength["K_c  =  "]];
 	s = StringSplit[s, "/"];
 	s = reduceParentheses/@ s;
 	s = StringSplit[s," "];
 	string = getChemicals/@Flatten @ s;
 	s = inputTranslatorHelper /@ s;
-	{s, string}
+	{s, string}]
 ]
 
 
@@ -233,6 +237,15 @@ getArcs[{leftChems_List, rightChem_List}]:= Module[
 ]
 
 
+buildPetriNet[reactions_, chemicals_, init_, steps_]:= Module[
+	{places, trans, arcs},
+	places = getPlaces[chemicals];
+	trans = getTransitions[reactions];
+	arcs = getArcs[reactions];
+	<|"Places"-> places, "Transitions"->trans, "Arcs"->arcs, "Initial States"-><|"e.g: 0,0,1"->init|>,"Steps"-><|"Input the steps you want to animate"->steps|>|>
+]
+
+
 TranslateFromChemToGeneral[<|"Reactions"->{<|"Input the reactions"->st_|>},
 	"Initial States"-><|"e.g: 0,0,1"->init_|>,
 	"Steps"-><|"Input the steps you want to animate"->steps_|>|>]:= Module[
@@ -243,14 +256,10 @@ TranslateFromChemToGeneral[<|"Reactions"->{<|"Input the reactions"->st_|>},
 ]
 
 
-ClearAll[PetriNet];
-PetriNetChemistry[]:=Module[
-	{PetriNet},
-	PetriNet=FormFunction[<|"Reactions" -> RepeatingElement[CompoundElement[<|"Input the reactions"-> "String"|>]],
+ClearAll[PetriNetChemistry];
+PetriNetChemistry[]:= FormFunction[<|"Reactions" -> RepeatingElement[CompoundElement[<|"Input the reactions"-> "String"|>]],
 	"Initial States" -> CompoundElement[{"e.g: 0,0,1"->"String"}],
-	"Steps" -> CompoundElement[{"Input the steps you want to animate"-> "Integer"->10}]|>,TranslateFromChemToGeneral];
-	PetriNet[]
-]
+	"Steps" -> CompoundElement[{"Input the steps you want to animate"-> "Integer"->5}]|>,TranslateFromChemToGeneral][]
 
 
 (* ::Section:: *)
@@ -262,5 +271,15 @@ PetriNetChemistry[]:=Module[
 
 
 (* ::Text:: *)
-(*TODO:// PetriNetReachableQ[ Neural Net n, Node m]*)
-(*return True if m is reachable or false if m is not reachable.*)
+(* PetriNetReachableQ[ Neural Net n, init, Node m2]*)
+(*Return: True if for Net n, m2 is reachable given the initial condition init in finite steps, else return False.*)
+
+
+ClearAll[petriNetReachableQ];
+petriNetReachableQ[pnet_, init_, place_]:= Module[
+	{states, places, assoc},
+	states = Total[NestList[updateFiring[pnet], init , 100]];
+	places = First @ Rest @ pnet;
+	assoc = Association[Thread[places -> states]];
+	If[assoc[place] === 0, False, True]
+]
